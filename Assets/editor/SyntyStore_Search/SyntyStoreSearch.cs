@@ -51,14 +51,7 @@ namespace SyntyTools
 
         void OnGUI()
         {
-            imageStyle = new GUIStyle(GUI.skin.label);
-            imageStyle.margin = new RectOffset(offset, offset, offset, offset);
-            imageStyle.normal.background = new Texture2D(imageWidth, imageHeight);
-
-            labelStyle = new GUIStyle();
-            labelStyle.normal.textColor = Color.yellow;
-            labelStyle.fontSize = 15;
-            labelStyle.alignment = TextAnchor.MiddleCenter;
+            InitializeStyles();
 
             DisplayHeaderContent();
 
@@ -68,6 +61,18 @@ namespace SyntyTools
             {
                 DisplaySearchResults();
             }
+        }
+
+        private void InitializeStyles()
+        {
+            imageStyle = new GUIStyle(GUI.skin.label);
+            imageStyle.margin = new RectOffset(offset, offset, offset, offset);
+            imageStyle.normal.background = new Texture2D(imageWidth, imageHeight);
+
+            labelStyle = new GUIStyle();
+            labelStyle.normal.textColor = Color.yellow;
+            labelStyle.fontSize = 15;
+            labelStyle.alignment = TextAnchor.MiddleCenter;
         }
 
         private void DisplayHeaderContent()
@@ -86,7 +91,7 @@ namespace SyntyTools
 
             GUIContent setFolderContent = new GUIContent(
                 setLocationText,
-                string.IsNullOrWhiteSpace(packageFolderPath) ? "Click here to specify the location of your Synty unitypackage files" : packageFolderPath);
+                string.IsNullOrWhiteSpace(packageFolderPath) ? "Click here to specify the location of your Synty unitypackage files (optional)" : packageFolderPath);
             if (GUILayout.Button(setFolderContent, GUILayout.ExpandWidth(false)))
             {
                 var path = EditorUtility.OpenFolderPanel(setLocationText, "", "");
@@ -165,19 +170,15 @@ namespace SyntyTools
 
         private void DisplayPackContent(PackModel pack)
         {
-            string ownership;
-            if (ownedPackages == null || ownedPackages.Count == 0)
+            string ownership = "";
+            if (ownedPackages != null && ownedPackages.Count > 0)
             {
-                ownership = setLocationText;
-            }
-            else
-            {
-                ownership = IsPackOwned(pack) ? "Owned" : "Click on item to buy";
+                ownership = "- " + (IsPackOwned(pack.packName) ? "Owned" : "Click an item to buy!");
             }
 
             pack.foldoutIsExpanded = EditorGUILayout.BeginFoldoutHeaderGroup(
                 pack.foldoutIsExpanded,
-                $"{pack.packName} ({pack.searchItems.Count}) - {ownership}");
+                $"{pack.packName} ({pack.searchItems.Count}) {ownership}");
 
             if (pack.foldoutIsExpanded)
             {
@@ -187,16 +188,17 @@ namespace SyntyTools
             EditorGUILayout.EndFoldoutHeaderGroup();
         }
 
-        private bool IsPackOwned(PackModel pack)
+        private bool IsPackOwned(string packName)
         {
             //HACK - remove last character to deal with plural pack names (e.g. pirates)
-            return ownedPackages.Keys.Any(x => x.StartsWith(pack.packName.Remove(pack.packName.Length - 1).ToLower()));
+            return ownedPackages.Keys.Any(x => x.StartsWith(packName.Remove(packName.Length - 1).ToLower()));
         }
 
         private void DisplayFoldoutContent(PackModel pack)
         {
             int horizontalImageSpace = 0;
             EditorGUILayout.BeginHorizontal();
+
             foreach (var item in pack.searchItems)
             {
                 if (item.imageTexture == null)
@@ -216,6 +218,7 @@ namespace SyntyTools
                     Application.OpenURL(pack.packStoreUrl);
                 }
             }
+
             EditorGUILayout.EndHorizontal();
         }
 
@@ -239,23 +242,27 @@ namespace SyntyTools
                 buttonTexture = GetImageFromUrlAsTexture(headerTexture);
                 buttonContent = new GUIContent(buttonTexture);
             }
+
             return buttonContent;
         }
 
         private Texture2D GetImageFromUrlAsTexture(string url)
         {
-            Texture2D tex = new Texture2D(2, 2);
+            Texture2D texture = new Texture2D(2, 2);
+
             using (WebClient client = new WebClient())
             {
                 byte[] data = client.DownloadData(url);
-                tex.LoadImage(data);
+                texture.LoadImage(data);
             }
-            return tex;
+            
+            return texture;
         }
 
         private List<PackModel> SortSearchResults(SearchData results)
         {
             List<PackModel> packs = new List<PackModel>();
+
             var packNames = results.data.Select(x => x.pack).Distinct().ToList();
 
             foreach (var packName in packNames)
