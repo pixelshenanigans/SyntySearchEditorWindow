@@ -1,4 +1,5 @@
 ﻿using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Net;
 using System.Text;
@@ -16,6 +17,7 @@ namespace SyntyTools
         const string siteUrl = "https://www.syntysearch.com";
         const string apiPart = "/api/";
         const string searchPart = "prefab/search/";
+        const string setLocationText = "Set package location";
         const int windowWidth = 650;
         const int windowHeight = 500;
         const int bannerHeight = 171;
@@ -23,15 +25,16 @@ namespace SyntyTools
         const int imageHeight = 120;
         const int offset = 5;
 
+        string searchMessage = "";
+        string searchTerm = "";
+        string packageFolderPath = "";
         GUIStyle imageStyle;
         GUIStyle labelStyle;
-        Texture2D buttonTexture = null;
+        Texture2D buttonTexture;
         GUIContent buttonContent;
-        string searchMessage = "";
         Vector2 scrollPos;
-        string searchTerm = "";
-        SearchData searchData = null;
-        List<PackModel> sortedSearchData = null;
+        List<PackModel> sortedSearchData;
+        Dictionary<string,string> ownedPackages;
 
         [MenuItem("Synty Tools/" + editorTitle)]
         private static void OpenWindow()
@@ -57,28 +60,63 @@ namespace SyntyTools
             labelStyle.fontSize = 15;
             labelStyle.alignment = TextAnchor.MiddleCenter;
 
-            GUILayout.BeginHorizontal();
-            if (GUILayout.Button(CreateHeaderContent(), GUILayout.Width(windowWidth), GUILayout.Height(bannerHeight)))
-            {
-                Application.OpenURL(storeUrl);
-            }
-            GUILayout.EndHorizontal();
+            DisplayHeaderContent();
 
-            GUILayout.BeginHorizontal();
-            GUILayout.Label("Enter term to search:", GUILayout.ExpandWidth(false));
-            searchTerm = GUILayout.TextField(searchTerm, GUILayout.ExpandWidth(true));
-            if (GUILayout.Button("Search", GUILayout.ExpandWidth(false)))
-            {
-                GetSearchResults(searchTerm);
-            }
-            GUILayout.EndHorizontal();
-
-            GUILayout.Label(searchMessage, labelStyle);
+            DisplaySearchContent();
 
             if (sortedSearchData != null)
             {
                 DisplaySearchResults();
             }
+        }
+
+        private void DisplayHeaderContent()
+        {
+            if (GUILayout.Button(CreateHeaderContent(), GUILayout.Width(windowWidth), GUILayout.Height(bannerHeight)))
+            {
+                Application.OpenURL(storeUrl);
+            }
+
+            GUILayout.BeginHorizontal();
+
+            if (GUILayout.Button("Visit the online Synty Search page"))
+            {
+                Application.OpenURL(siteUrl);
+            }
+
+            GUIContent setFolderContent = new GUIContent(
+                setLocationText,
+                string.IsNullOrWhiteSpace(packageFolderPath) ? "Click here to specify the location of your Synty unitypackage files" : packageFolderPath);
+            if (GUILayout.Button(setFolderContent, GUILayout.ExpandWidth(false)))
+            {
+                var path = EditorUtility.OpenFolderPanel(setLocationText, "", "");
+                string[] files = Directory.GetFiles(path, "polygon*.unitypackage");
+                //HACK - remove underscores so we can match start of package name with pack
+                // (e.g. package = Polygon_Adventure_Unity_Package_2019_4_01, pack = PolygonAdventure)
+                ownedPackages = files
+                    .Select(x => Path.GetFileName(x))
+                    .ToDictionary(x => x.Replace("_", string.Empty).ToLower(), x => x);
+                packageFolderPath = path;
+            }
+
+            GUILayout.EndHorizontal();
+        }
+
+        private void DisplaySearchContent()
+        {
+            GUILayout.BeginHorizontal();
+
+            GUILayout.Label("Enter term to search:", GUILayout.ExpandWidth(false));
+            searchTerm = GUILayout.TextField(searchTerm, GUILayout.ExpandWidth(true));
+
+            if (GUILayout.Button("Search", GUILayout.ExpandWidth(false)))
+            {
+                GetSearchResults(searchTerm);
+            }
+
+            GUILayout.EndHorizontal();
+
+            GUILayout.Label(searchMessage, labelStyle);
         }
 
         private List<PackModel> GetSearchResults(string term)
@@ -93,7 +131,7 @@ namespace SyntyTools
                     byte[] data = client.DownloadData(url);
                     if (data != null)
                     {
-                        searchData = JsonUtility.FromJson<SearchData>(Encoding.ASCII.GetString(data));
+                        var searchData = JsonUtility.FromJson<SearchData>(Encoding.ASCII.GetString(data));
                         if (searchData.success == true)
                         {
                             sortedSearchData = SortSearchResults(searchData);
@@ -115,25 +153,44 @@ namespace SyntyTools
         private void DisplaySearchResults()
         {
             scrollPos = EditorGUILayout.BeginScrollView(scrollPos, true, true);
+
             for (int i = 0; i < sortedSearchData.Count; i++)
             {
                 PackModel pack = sortedSearchData[i];
                 DisplayPackContent(pack);
             }
+
             EditorGUILayout.EndScrollView();
         }
 
         private void DisplayPackContent(PackModel pack)
         {
+            string ownership;
+            if (ownedPackages == null || ownedPackages.Count == 0)
+            {
+                ownership = setLocationText;
+            }
+            else
+            {
+                ownership = IsPackOwned(pack) ? "Owned" : "Click on item to buy";
+            }
+
             pack.foldoutIsExpanded = EditorGUILayout.BeginFoldoutHeaderGroup(
                 pack.foldoutIsExpanded,
-                $"{pack.packName} ({pack.searchItems.Count})");
+                $"{pack.packName} ({pack.searchItems.Count}) - {ownership}");
 
             if (pack.foldoutIsExpanded)
             {
                 DisplayFoldoutContent(pack);
             }
+
             EditorGUILayout.EndFoldoutHeaderGroup();
+        }
+
+        private bool IsPackOwned(PackModel pack)
+        {
+            //HACK - remove last character to deal with plural pack names (e.g. pirates)
+            return ownedPackages.Keys.Any(x => x.StartsWith(pack.packName.Remove(pack.packName.Length - 1).ToLower()));
         }
 
         private void DisplayFoldoutContent(PackModel pack)
