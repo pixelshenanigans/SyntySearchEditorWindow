@@ -32,5 +32,5 @@ Known issues
 - No way to remove folder locations
 - Package scanning is done on the UI thread, so is blocking
 - Image/font size for search results is not saved
-- Current scripts have a dependency on Newtonsoft.Json (JSON.Net for Unity)
+- Current scripts have a dependency on Newtonsoft.Json (https://docs.unity3d.com/Packages/com.unity.nuget.newtonsoft-json@3.0/manual/index.html)
 - Download the unitypackage file for a working version (without the new features)
