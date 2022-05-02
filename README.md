@@ -2,7 +2,7 @@
 Unity Synty Search editor tool
 
 - Use alongside the Synty Packge Importer tool.
-- This tool makes use of the community-built Synty search page [www.syntysearch.com] and provides this same search feature in a convenient Unity editor window.
+- This tool makes use of the community-built Synty search page (www.syntysearch.com) and provides this same search feature in a convenient Unity editor window.
 - The search reults are filtered by asset package.
 - The prefab preview images and name text can be scaled using the slider control. 
 - If you have set the location of your Unity packages, each package will be indicated as being "unowned", "owned" or "imported".
