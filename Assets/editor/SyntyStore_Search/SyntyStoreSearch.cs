@@ -1,6 +1,4 @@
-﻿using Newtonsoft.Json;
-
-using PixelShenanigans.EditorUtilities;
+﻿using PixelShenanigans.EditorUtilities;
 using PixelShenanigans.FileUtilities;
 
 using System;
@@ -78,14 +76,17 @@ namespace PixelShenanigans.SyntyStoreSearch
             if (File.Exists(locationsFilePath))
             {
                 string locationsJson = File.ReadAllText(locationsFilePath);
-                packageFolderPaths = JsonConvert.DeserializeObject<List<string>>(locationsJson);
+                var folderPathsDto =  JsonUtility.FromJson<PackageFolderPathsDto>(locationsJson);
+                packageFolderPaths = folderPathsDto.folderPaths;
             }
 
             var cacheFilePath = Path.Combine(GetCacheLocation(), "cache.json");
             if (File.Exists(cacheFilePath))
             {
                 string cacheJson = File.ReadAllText(cacheFilePath);
-                ownedPackages = JsonConvert.DeserializeObject<Dictionary<string,PackageModel>>(cacheJson);
+                var packagesDto = JsonUtility.FromJson<OwnedPackagesDto>(cacheJson);
+                var packageDtos = packagesDto.packageDtos;
+                ownedPackages = ToModels(packageDtos);
             }
         }
 
@@ -103,11 +104,19 @@ namespace PixelShenanigans.SyntyStoreSearch
             Debug.Log("Saving cache data...");
 
             var locationsFilePath = Path.Combine(GetCacheLocation(), "locations.json");
-            string locationsJson = JsonConvert.SerializeObject(packageFolderPaths);
+            var folderPathsDto = new PackageFolderPathsDto()
+            {
+                folderPaths = packageFolderPaths
+            };
+            string locationsJson = JsonUtility.ToJson(folderPathsDto);
             File.WriteAllText(locationsFilePath, locationsJson);
 
             var cacheFilePath = Path.Combine(GetCacheLocation(), "cache.json");
-            string cacheJson = JsonConvert.SerializeObject(ownedPackages);
+            var ownedPackagesDto = new OwnedPackagesDto()
+            {
+                packageDtos = FromModels(ownedPackages)
+            };
+            string cacheJson = JsonUtility.ToJson(ownedPackagesDto);
             File.WriteAllText(cacheFilePath, cacheJson);
 
             cacheIsDirty = false;
@@ -642,6 +651,54 @@ namespace PixelShenanigans.SyntyStoreSearch
             return Path.Combine(appDataPath, "SyntySearch");
 #endif
         }
+
+        private Dictionary<string, PackageModel> ToModels(List<PackageDto> packageDtos)
+        {
+            Dictionary<string, PackageModel> packages = new Dictionary<string, PackageModel>();
+
+            foreach (var packageDto in packageDtos)
+            {
+                packages.Add(packageDto.Name, ToModel(packageDto));
+            }
+
+            return packages;
+        }
+
+        private PackageModel ToModel(PackageDto packageDto)
+        {
+            var package = new PackageModel()
+            {
+                Name = packageDto.Name,
+                Path = packageDto.Path,
+                Assets = packageDto.Assets.Select(x => x.Split('|')).ToDictionary(s => s[0], s => s[1])
+            };
+
+            package.IsCurrentlyImported = IsCurrentlyImported(package.Assets.Values.First());
+            
+            return package;
+        }
+
+        private List<PackageDto> FromModels(Dictionary<string,PackageModel> packages)
+        {
+            List<PackageDto> packageDtos = new List<PackageDto>();
+
+            foreach (var package in packages.Values)
+            {
+                packageDtos.Add(FromModel(package));
+            }
+
+            return packageDtos;
+        }
+
+        private PackageDto FromModel(PackageModel package)
+        {
+            return new PackageDto()
+            {
+                Name = package.Name,
+                Path = package.Path,
+                Assets = package.Assets.Select(x => string.Join("|", x.Key, x.Value)).ToList()
+            };
+        }
     }
 
     [Serializable]
@@ -681,5 +738,25 @@ namespace PixelShenanigans.SyntyStoreSearch
         public string Path;
         public Dictionary<string, string> Assets;
         public bool IsCurrentlyImported;
+    }
+
+    [Serializable]
+    public class PackageDto
+    {
+        public string Name;
+        public string Path;
+        public List<string> Assets;
+    }
+
+    [Serializable]
+    public class PackageFolderPathsDto
+    {
+        public List<string> folderPaths;
+    }
+
+    [Serializable]
+    public class OwnedPackagesDto
+    {
+        public List<PackageDto> packageDtos;
     }
 }
