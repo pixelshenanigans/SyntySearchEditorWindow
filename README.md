@@ -7,13 +7,14 @@ Unity Synty Search editor tool
 - The search results are filtered by asset package.
 - The prefab preview images and name text can be scaled using the slider control. 
 - If you have set the location of your Unity packages, each package will be indicated as being "unowned", "owned" or "imported".
-  - Clicking on any "unowned" item will take you to the Synty store page for that package.
+  - Clicking on any "unowned" item will take you to the Synty store (www.syntystore.com) page for that package.
   - Clicking on any "imported" item will highlight that prefab in your project window, making it easy to find what you're looking for!
 - You can set multiple package locations.
 - The Unity asset download folder is always scanned when you set a location.
 - Adding other locations is useful if you've downloaded unitypackage files from the Synty store.
 - The tool scans each location for any "Polygon" unitypackage files and builds a database of the asset paths. This scan will take a few minutes but the data is
 cached and is available across all of your Unity projects.
+- This a community project and is not affiliated with Synty Studios.
 
 Roadmap
 -------
