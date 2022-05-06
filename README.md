@@ -1,7 +1,7 @@
 # SyntySearchEditorWindow
 Unity Synty Search editor tool
 
-![Synty Search Screenshot](EditorWindow.png)
+![Synty Search Screenshot](https://github.com/pixelshenanigans/SyntySearchEditorWindow/blob/main/EditorWindow.png?raw=true)
 
 - A Synty "Polygon" package organizer that integrates with Synty search.
 - Use alongside the Synty Package Importer tool.

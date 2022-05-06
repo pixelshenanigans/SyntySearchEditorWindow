@@ -28,6 +28,7 @@ namespace PixelShenanigans.SyntyStoreSearch
         const string SearchPart = "prefab/search/";
         const string SetLocationText = "Set package location";
         const string AssetPathPrefix = "Assets/";
+        const string CurrentVersion = "1.1";
         const int WindowWidth = 500;
         const int WindowHeight = 700;
         const int BannerHeight = 180;
@@ -90,6 +91,12 @@ namespace PixelShenanigans.SyntyStoreSearch
                 string cacheJson = File.ReadAllText(cacheFilePath);
                 var packagesDto = JsonUtility.FromJson<OwnedPackagesDto>(cacheJson);
                 var packageDtos = packagesDto.packageDtos;
+                if (packagesDto.Version != CurrentVersion)
+                {
+                    File.Delete(cacheFilePath);
+                    File.Delete(locationsFilePath);
+                    return;
+                }
                 ownedPackages = ToModels(packageDtos);
             }
         }
@@ -116,7 +123,8 @@ namespace PixelShenanigans.SyntyStoreSearch
             var cacheFilePath = Path.Combine(GetCacheLocation(), "cache.json");
             var ownedPackagesDto = new OwnedPackagesDto()
             {
-                packageDtos = FromModels(ownedPackages)
+                packageDtos = FromModels(ownedPackages),
+                Version = CurrentVersion
             };
             string cacheJson = JsonUtility.ToJson(ownedPackagesDto);
             File.WriteAllText(cacheFilePath, cacheJson);
@@ -785,6 +793,7 @@ namespace PixelShenanigans.SyntyStoreSearch
     [Serializable]
     public class OwnedPackagesDto
     {
+        public string Version;
         public List<PackageDto> packageDtos;
     }
 }
