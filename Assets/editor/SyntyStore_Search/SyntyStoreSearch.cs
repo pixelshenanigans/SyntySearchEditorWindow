@@ -28,7 +28,7 @@ namespace PixelShenanigans.SyntyStoreSearch
         const string SearchPart = "prefab/search/";
         const string SetLocationText = "Set package location";
         const string AssetPathPrefix = "Assets/";
-        const string CurrentVersion = "1.1";
+        const string CurrentCacheVersion = "1.1";
         const int WindowWidth = 500;
         const int WindowHeight = 700;
         const int BannerHeight = 180;
@@ -91,10 +91,14 @@ namespace PixelShenanigans.SyntyStoreSearch
                 string cacheJson = File.ReadAllText(cacheFilePath);
                 var packagesDto = JsonUtility.FromJson<OwnedPackagesDto>(cacheJson);
                 var packageDtos = packagesDto.packageDtos;
-                if (packagesDto.Version != CurrentVersion)
+
+                if (packagesDto.Version != CurrentCacheVersion
+                 || packageDtos.Count == 0)
                 {
+                    searchMessage = "Cache files need to be updated - please set package location to re-scan";
                     File.Delete(cacheFilePath);
                     File.Delete(locationsFilePath);
+                    packageFolderPaths.Clear();
                     return;
                 }
                 ownedPackages = ToModels(packageDtos);
@@ -124,7 +128,7 @@ namespace PixelShenanigans.SyntyStoreSearch
             var ownedPackagesDto = new OwnedPackagesDto()
             {
                 packageDtos = FromModels(ownedPackages),
-                Version = CurrentVersion
+                Version = CurrentCacheVersion
             };
             string cacheJson = JsonUtility.ToJson(ownedPackagesDto);
             File.WriteAllText(cacheFilePath, cacheJson);
@@ -515,11 +519,13 @@ namespace PixelShenanigans.SyntyStoreSearch
                             {
                                 if (assetPath.StartsWith(AssetPathPrefix))
                                 {
+                                    assetPath = assetPath.Remove(0, AssetPathPrefix.Length);
                                     if (firstAssetPath == null)
                                     {
                                         firstAssetPath = assetPath;
                                     }
-                                    assetPath = ReduceAssetPath(assetPath);
+                                    int index = assetPath.IndexOf("/");
+                                    assetPath = assetPath.Remove(0, index + 1);
                                 }
 
                                 string assetName = GetAssetName(assetPath);
@@ -538,15 +544,8 @@ namespace PixelShenanigans.SyntyStoreSearch
                 Name = GetPackageName(firstAssetPath),
                 Path = filePath,
                 Assets = assets,
-                IsCurrentlyImported = IsCurrentlyImported(GetPackageName(firstAssetPath), firstAssetPath)
+                IsCurrentlyImported = IsCurrentlyImported(firstAssetPath)
             };
-        }
-
-        private string ReduceAssetPath(string assetPath)
-        {
-            string path = assetPath.Remove(0, AssetPathPrefix.Length);
-            int index = path.IndexOf("/");
-            return path.Remove(0, index + 1);
         }
 
         private string GetAssetName(string assetPath)
@@ -558,9 +557,14 @@ namespace PixelShenanigans.SyntyStoreSearch
 
         private string GetPackageName(string assetPath)
         {
-            string path = assetPath.Remove(0, AssetPathPrefix.Length);
-            int endIndex = path.IndexOf("/");
-            return path.Substring(0, endIndex);
+            int endIndex = assetPath.IndexOf("/");
+            return assetPath.Substring(0, endIndex);
+        }
+
+        private bool IsCurrentlyImported(string assetPath)
+        {
+            string importedAssetPath = Path.Combine(Application.dataPath, assetPath);
+            return File.Exists(importedAssetPath);
         }
 
         private bool IsCurrentlyImported(string name, string assetPath)
