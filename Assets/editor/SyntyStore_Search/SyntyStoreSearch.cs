@@ -1,4 +1,4 @@
-﻿using PixelShenanigans.EditorUtilities;
+using PixelShenanigans.EditorUtilities;
 using PixelShenanigans.FileUtilities;
 
 using System;
@@ -15,10 +15,12 @@ using UnityEngine;
 
 namespace PixelShenanigans.SyntyStoreSearch
 {
+    [EditorWindowTitle(icon="synty_search_icon.png", title=EditorTitle)]
     public class SyntyStoreSearch : EditorWindow
     {
         const string HeaderTexture = "Assets/Editor/SyntyStore_Search/synty_search_header.png";
         const string IconTexture = "Assets/Editor/SyntyStore_Search/synty_search_icon.png";
+        const string ImageResizeIconTexture = "Assets/Editor/SyntyStore_Search/resize_image_icon.png";
         const string EditorTitle = "Synty Store Prefab Search";
         const string StoreUrl = "https://syntystore.com/";
         const string SiteUrl = "https://www.syntysearch.com";
@@ -52,8 +54,10 @@ namespace PixelShenanigans.SyntyStoreSearch
         GUIStyle containerStyle;
         Texture2D buttonTexture;
         Texture2D iconTexture;
+        Texture2D imageResizeIconTexture;
         GUIContent buttonContent;
         GUIContent iconContent;
+        GUIContent imageResizeIconContent;
         GUIContent setLocationContent;
         Vector2 scrollPos;
         List<PackModel> sortedSearchData;
@@ -100,8 +104,6 @@ namespace PixelShenanigans.SyntyStoreSearch
             {
                 directory.Create();
             }
-
-            Debug.Log("Saving cache data...");
 
             var locationsFilePath = Path.Combine(GetCacheLocation(), "locations.json");
             var folderPathsDto = new PackageFolderPathsDto()
@@ -238,6 +240,12 @@ namespace PixelShenanigans.SyntyStoreSearch
                 iconContent = new GUIContent(iconTexture, "Package Count");
             }
 
+            if (imageResizeIconTexture == null)
+            {
+                imageResizeIconTexture = GetImageFromUrlAsTexture(ImageResizeIconTexture);
+                imageResizeIconContent = new GUIContent(imageResizeIconTexture, "Resize Images");
+            }
+
             setLocationContent = new GUIContent(
                 SetLocationText,
                 packageFolderPaths.Count == 0
@@ -280,11 +288,20 @@ namespace PixelShenanigans.SyntyStoreSearch
         {
             GUILayout.BeginHorizontal();
 
+            GUI.SetNextControlName("search");
             searchTerm = GUILayout.TextField(searchTerm, this.textBoxStyle, GUILayout.MinWidth(200));
 
             bool performedSearch = GUILayout.Button("Search", this.buttonStyle);
 
             DisplayImageSizeSlider();
+
+            if (!string.IsNullOrEmpty(searchTerm)
+              && Event.current.type == EventType.KeyUp
+              && Event.current.keyCode == KeyCode.Return
+              && GUI.GetNameOfFocusedControl() == "search")
+            {
+                performedSearch = true;
+            }
 
             if (performedSearch)
             {
@@ -350,7 +367,10 @@ namespace PixelShenanigans.SyntyStoreSearch
 
         private void DisplayImageSizeSlider()
         {
-            float size = GUILayout.HorizontalSlider(imageSize, imageWidthMin, imageWidthMax, sliderStyle, GUI.skin.horizontalSliderThumb, GUILayout.Width(150));
+            GUILayout.Button(imageResizeIconContent, iconStyle);
+            
+            float size = GUILayout.HorizontalSlider(imageSize, imageWidthMin, imageWidthMax, sliderStyle,
+                GUI.skin.horizontalSliderThumb, GUILayout.Width(120));
 
             imageSize = Mathf.RoundToInt(size);
             fontSize = MapRange(imageSize, imageWidthMin, imageWidthMax, fontSizeMin, fontSizeMax);
@@ -377,12 +397,11 @@ namespace PixelShenanigans.SyntyStoreSearch
                     item.ImageTexture = GetImageFromUrlAsTexture(SiteUrl + ApiPart + item.ImagePath);
                 }
 
-                var itemContent = new GUIContent(item.ImageTexture, item.Name);
                 horizontalImageSpace = CalculateImagePosition(horizontalImageSpace);
 
                 GUILayout.BeginVertical();
 
-                if (GUILayout.Button(itemContent,
+                if (GUILayout.Button(new GUIContent(item.ImageTexture, item.Name),
                                      imageStyle,
                                      GUILayout.Width(imageSize),
                                      GUILayout.Height(imageSize),
@@ -399,7 +418,7 @@ namespace PixelShenanigans.SyntyStoreSearch
                                 {
                                     EditorGUIUtility.PingObject(
                                         AssetDatabase.LoadMainAssetAtPath(
-                                            AssetPathPrefix + package.Assets[item.Name]));
+                                            Path.Combine(AssetPathPrefix, package.Name, package.Assets[item.Name])));
                                 }
                             }
                         }
@@ -414,6 +433,7 @@ namespace PixelShenanigans.SyntyStoreSearch
                 GUILayout.EndVertical();
             }
 
+            GUILayout.FlexibleSpace();
             EditorGUILayout.EndHorizontal();
         }
 
@@ -470,6 +490,7 @@ namespace PixelShenanigans.SyntyStoreSearch
         private PackageModel GetUnityPackageContents(string filePath)
         {
             var assets = new Dictionary<string, string>();
+            string firstAssetPath = null;
 
             using (var fileStream = File.Open(filePath, FileMode.Open))
             {
@@ -486,7 +507,11 @@ namespace PixelShenanigans.SyntyStoreSearch
                             {
                                 if (assetPath.StartsWith(AssetPathPrefix))
                                 {
-                                    assetPath = assetPath.Remove(0, AssetPathPrefix.Length);
+                                    if (firstAssetPath == null)
+                                    {
+                                        firstAssetPath = assetPath;
+                                    }
+                                    assetPath = ReduceAssetPath(assetPath);
                                 }
 
                                 string assetName = GetAssetName(assetPath);
@@ -500,36 +525,39 @@ namespace PixelShenanigans.SyntyStoreSearch
                 }
             }
 
-            string firstAssetPath = assets.Values.First();
-
             return new PackageModel()
             {
                 Name = GetPackageName(firstAssetPath),
                 Path = filePath,
                 Assets = assets,
-                IsCurrentlyImported = IsCurrentlyImported(firstAssetPath)
+                IsCurrentlyImported = IsCurrentlyImported(GetPackageName(firstAssetPath), firstAssetPath)
             };
+        }
+
+        private string ReduceAssetPath(string assetPath)
+        {
+            string path = assetPath.Remove(0, AssetPathPrefix.Length);
+            int index = path.IndexOf("/");
+            return path.Remove(0, index + 1);
         }
 
         private string GetAssetName(string assetPath)
         {
             int startIndex = assetPath.LastIndexOf("/") + 1;
             int endIndex = assetPath.LastIndexOf(".");
-
             return assetPath.Substring(startIndex, endIndex - startIndex);
         }
 
         private string GetPackageName(string assetPath)
         {
-            int endIndex = assetPath.IndexOf("/");
-
-            return assetPath.Substring(0, endIndex);
+            string path = assetPath.Remove(0, AssetPathPrefix.Length);
+            int endIndex = path.IndexOf("/");
+            return path.Substring(0, endIndex);
         }
 
-        private bool IsCurrentlyImported(string assetPath)
+        private bool IsCurrentlyImported(string name, string assetPath)
         {
-            string importedAssetPath = Path.Combine(Application.dataPath, assetPath);
-
+            string importedAssetPath = Path.Combine(Application.dataPath, name, assetPath);
             return File.Exists(importedAssetPath);
         }
 
@@ -572,13 +600,13 @@ namespace PixelShenanigans.SyntyStoreSearch
         private int CalculateImagePosition(int position)
         {
             position += imageSize + ImageMargin;
-            if (position > (base.position.width - 10))
+            if (position > (base.position.width - imageWidthMin - 1))
             {
-                position = imageSize + (ImageMargin * 2);
+                position = imageSize + ImageMargin;
+                GUILayout.FlexibleSpace();
                 EditorGUILayout.EndHorizontal();
                 EditorGUILayout.BeginHorizontal();
             }
- //           Debug.Log($"Image position: {position} (Window width={base.position.width})");
 
             return position;
         }
@@ -673,7 +701,7 @@ namespace PixelShenanigans.SyntyStoreSearch
                 Assets = packageDto.Assets.Select(x => x.Split('|')).ToDictionary(s => s[0], s => s[1])
             };
 
-            package.IsCurrentlyImported = IsCurrentlyImported(package.Assets.Values.First());
+            package.IsCurrentlyImported = IsCurrentlyImported(package.Name, package.Assets.Values.First());
             
             return package;
         }
