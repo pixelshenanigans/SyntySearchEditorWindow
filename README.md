@@ -1,7 +1,7 @@
 # SyntySearchEditorWindow
 Unity Synty Search editor tool
 
-![Synty Search Screenshot](https://user-images.githubusercontent.com/80069077/167197946-17baaca1-7071-4340-8070-89c2091e24df.PNG)
+![Synty Search Screenshot](https://user-images.githubusercontent.com/80069077/167243235-0a3f822d-849b-4b7e-a1b2-06a37c486a3a.PNG)
 
 - A Synty "Polygon" package organizer that integrates with Synty search.
 - Use alongside the Synty Package Importer tool.
@@ -17,17 +17,22 @@ Unity Synty Search editor tool
 - The tool scans each location for any "Polygon" unitypackage files and builds a database of the asset paths. This scan will take a few minutes but the data is cached and is available across all of your Unity projects!
 - This a community project and is not affiliated with Synty Studios.
 
-Release Notes (5/5/2022)
+Release Notes 1.1  (5/5/2022)
 ------------------------
 
 - Fixed image resizing
 - Can now use ENTER key to perform search
 - Reduced size of asset database cache
 
+Release Notes 1.2 (5/7/2022)
+------------------------
+
+- Search image size saved in EditorPrefs
+- Number of imported and owned packages displayed
+- UI improvements
+
 Roadmap
 -------
-- Clear message between searches
-- Save image and font size in editor prefs
 - Provide way to rescan file locations
 
 Known issues

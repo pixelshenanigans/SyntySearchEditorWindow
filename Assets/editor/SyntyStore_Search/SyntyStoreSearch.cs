@@ -15,7 +15,6 @@ using UnityEngine;
 
 namespace PixelShenanigans.SyntyStoreSearch
 {
-    [EditorWindowTitle(icon="synty_search_icon.png", title=EditorTitle)]
     public class SyntyStoreSearch : EditorWindow
     {
         const string HeaderTexture = "Assets/Editor/SyntyStore_Search/synty_search_header.png";
@@ -28,10 +27,12 @@ namespace PixelShenanigans.SyntyStoreSearch
         const string SearchPart = "prefab/search/";
         const string SetLocationText = "Set package location";
         const string AssetPathPrefix = "Assets/";
+        const string ImageSizeEditorPrefsKey = "ImageSize";
+        const string CurrentAppVersion = "1.2";
         const string CurrentCacheVersion = "1.1";
         const int WindowWidth = 500;
         const int WindowHeight = 700;
-        const int BannerHeight = 180;
+        const int BannerHeight = 130;
         const int ImageMargin = 5;
         const int imageWidthMin = 40;
         const int imageWidthMax = 200;
@@ -41,6 +42,8 @@ namespace PixelShenanigans.SyntyStoreSearch
         bool cacheIsDirty = false;
         int imageSize = 120;
         int fontSize = 15;
+        int ownedPackageCount = 0;
+        int importedPackageCount = 0;
         string searchMessage = "";
         string searchTerm = "";
         GUIStyle imageStyle;
@@ -50,8 +53,9 @@ namespace PixelShenanigans.SyntyStoreSearch
         GUIStyle iconStyle;
         GUIStyle iconLabelStyle;
         GUIStyle textBoxStyle;
+        GUIStyle sliderIconStyle;
         GUIStyle sliderStyle;
-        GUIStyle sliderLabelStyle;
+        //GUIStyle sliderLabelStyle;
         GUIStyle containerStyle;
         Texture2D buttonTexture;
         Texture2D iconTexture;
@@ -69,7 +73,7 @@ namespace PixelShenanigans.SyntyStoreSearch
         private static void OpenWindow()
         {
             SyntyStoreSearch window = GetWindow<SyntyStoreSearch>();
-            window.titleContent = new GUIContent(EditorTitle);
+            window.titleContent = new GUIContent(EditorTitle, GetImageFromUrlAsTexture(IconTexture));
             window.minSize = new Vector2(WindowWidth, WindowHeight);
         }
 
@@ -77,15 +81,14 @@ namespace PixelShenanigans.SyntyStoreSearch
         {
             searchMessage = "";
 
-            var locationsFilePath = Path.Combine(GetCacheLocation(), "locations.json");
-            if (File.Exists(locationsFilePath))
+            if (EditorPrefs.HasKey(ImageSizeEditorPrefsKey))
             {
-                string locationsJson = File.ReadAllText(locationsFilePath);
-                var folderPathsDto =  JsonUtility.FromJson<PackageFolderPathsDto>(locationsJson);
-                packageFolderPaths = folderPathsDto.folderPaths;
+                imageSize = EditorPrefs.GetInt(ImageSizeEditorPrefsKey);
             }
 
+            var locationsFilePath = Path.Combine(GetCacheLocation(), "locations.json");
             var cacheFilePath = Path.Combine(GetCacheLocation(), "cache.json");
+
             if (File.Exists(cacheFilePath))
             {
                 string cacheJson = File.ReadAllText(cacheFilePath);
@@ -98,15 +101,24 @@ namespace PixelShenanigans.SyntyStoreSearch
                     searchMessage = "Cache files need to be updated - please set package location to re-scan";
                     File.Delete(cacheFilePath);
                     File.Delete(locationsFilePath);
-                    packageFolderPaths.Clear();
                     return;
                 }
+
                 ownedPackages = ToModels(packageDtos);
+                CalculatePackageStats();            }
+
+            if (File.Exists(locationsFilePath))
+            {
+                string locationsJson = File.ReadAllText(locationsFilePath);
+                var folderPathsDto = JsonUtility.FromJson<PackageFolderPathsDto>(locationsJson);
+                packageFolderPaths = folderPathsDto.folderPaths;
             }
         }
 
         private void OnDestroy()
         {
+            EditorPrefs.SetInt(ImageSizeEditorPrefsKey, imageSize);
+
             if (!cacheIsDirty) return;
 
             string cachePath = GetCacheLocation();
@@ -117,14 +129,8 @@ namespace PixelShenanigans.SyntyStoreSearch
             }
 
             var locationsFilePath = Path.Combine(GetCacheLocation(), "locations.json");
-            var folderPathsDto = new PackageFolderPathsDto()
-            {
-                folderPaths = packageFolderPaths
-            };
-            string locationsJson = JsonUtility.ToJson(folderPathsDto);
-            File.WriteAllText(locationsFilePath, locationsJson);
-
             var cacheFilePath = Path.Combine(GetCacheLocation(), "cache.json");
+
             var ownedPackagesDto = new OwnedPackagesDto()
             {
                 packageDtos = FromModels(ownedPackages),
@@ -132,6 +138,13 @@ namespace PixelShenanigans.SyntyStoreSearch
             };
             string cacheJson = JsonUtility.ToJson(ownedPackagesDto);
             File.WriteAllText(cacheFilePath, cacheJson);
+
+            var folderPathsDto = new PackageFolderPathsDto()
+            {
+                folderPaths = packageFolderPaths
+            };
+            string locationsJson = JsonUtility.ToJson(folderPathsDto);
+            File.WriteAllText(locationsFilePath, locationsJson);
 
             cacheIsDirty = false;
         }
@@ -193,19 +206,19 @@ namespace PixelShenanigans.SyntyStoreSearch
 
             iconStyle = new GUIStyle(GUI.skin.box)
             {
-                fixedHeight = 25,
-                fixedWidth = 25,
-                margin = new RectOffset(ImageMargin, ImageMargin, ImageMargin, ImageMargin)
+                fixedHeight = 20,
+                fixedWidth = 20,
+                margin = new RectOffset(0, 0, 8, 0)
             };
 
             iconLabelStyle = new GUIStyle()
             {
-                fixedHeight = 25,
-                fontSize = 14,
+                fixedHeight = 20,
+                fontSize = 12,
                 alignment = TextAnchor.MiddleLeft,
-                margin = new RectOffset(10, 0, 5, 0)
+                margin = new RectOffset(5, 5, 7, 5)
             };
-            iconLabelStyle.normal.textColor = Color.green;
+            iconLabelStyle.normal.textColor = Color.white;
 
             textBoxStyle = new GUIStyle(GUI.skin.textField)
             {
@@ -217,20 +230,27 @@ namespace PixelShenanigans.SyntyStoreSearch
                 stretchWidth = false
             };
 
-            sliderStyle = new GUIStyle(GUI.skin.horizontalSlider)
+            sliderIconStyle = new GUIStyle(GUI.skin.box)
             {
-                margin = new RectOffset(2, 2, 10, 0),
-                alignment = TextAnchor.MiddleLeft
+                fixedHeight = 20,
+                fixedWidth = 20,
+                margin = new RectOffset(0, 5, 8, 5)
             };
 
-            sliderLabelStyle = new GUIStyle()
+            //sliderLabelStyle = new GUIStyle()
+            //{
+            //    fixedHeight = 20,
+            //    fontSize = 12,
+            //    alignment = TextAnchor.MiddleLeft,
+            //    margin = new RectOffset(5, 5, 7, 5)
+            //};
+            //sliderLabelStyle.normal.textColor = Color.white;
+
+            sliderStyle = new GUIStyle(GUI.skin.horizontalSlider)
             {
-                fixedHeight = 25,
-                fontSize = 14,
-                alignment = TextAnchor.MiddleLeft,
-                margin = new RectOffset(10, 0, 5, 0)
+                margin = new RectOffset(2, 2, 8, 0),
+                alignment = TextAnchor.MiddleLeft
             };
-            sliderLabelStyle.normal.textColor = Color.white;
 
             containerStyle = new GUIStyle()
             {
@@ -246,7 +266,7 @@ namespace PixelShenanigans.SyntyStoreSearch
                 buttonContent = new GUIContent(buttonTexture, "Visit the online Synty Store");
             }
 
-            if (iconTexture == null)
+            if (iconContent == null)
             {
                 iconTexture = GetImageFromUrlAsTexture(IconTexture);
                 iconContent = new GUIContent(iconTexture, "Package Count");
@@ -276,6 +296,12 @@ namespace PixelShenanigans.SyntyStoreSearch
 
             GUILayout.BeginHorizontal();
 
+            GUILayout.Label($"Version {CurrentAppVersion} by PixelShenanigans");
+
+            GUILayout.EndHorizontal();
+
+            GUILayout.BeginHorizontal();
+
             if (GUILayout.Button("Visit the online Synty Search page", buttonStyle))
             {
                 Application.OpenURL(SiteUrl);
@@ -285,13 +311,17 @@ namespace PixelShenanigans.SyntyStoreSearch
             {
                 var path = EditorUtility.OpenFolderPanel(SetLocationText, "", "");
 #if UNITY_EDITOR_WIN
-                path = path.Replace("/", "\\");
+                path = path.Replace(" /", "\\");
 #endif
                 FetchPackageFiles(path);
             }
 
             GUILayout.Button(iconContent, iconStyle);
-            GUILayout.Label(ownedPackages.Count.ToString(), iconLabelStyle);
+            GUILayout.Label(
+                new GUIContent($"{importedPackageCount}/{ownedPackageCount}", "Imported/Owned"),
+                iconLabelStyle);
+
+            GUILayout.FlexibleSpace();
 
             GUILayout.EndHorizontal();
         }
@@ -331,8 +361,7 @@ namespace PixelShenanigans.SyntyStoreSearch
 
             for (int i = 0; i < sortedSearchData.Count; i++)
             {
-                PackModel pack = sortedSearchData[i];
-                DisplayPackContent(pack);
+                DisplayPackContent(sortedSearchData[i]);
             }
 
             EditorGUILayout.EndScrollView();
@@ -379,22 +408,17 @@ namespace PixelShenanigans.SyntyStoreSearch
 
         private void DisplayImageSizeSlider()
         {
-            GUILayout.Button(imageResizeIconContent, iconStyle);
+            GUILayout.Button(imageResizeIconContent, sliderIconStyle);
+
+            //GUILayout.Label(imageSize.ToString(), sliderLabelStyle);
             
             float size = GUILayout.HorizontalSlider(imageSize, imageWidthMin, imageWidthMax, sliderStyle,
-                GUI.skin.horizontalSliderThumb, GUILayout.Width(120));
+                GUI.skin.horizontalSliderThumb, GUILayout.Width(150));
 
             imageSize = Mathf.RoundToInt(size);
             fontSize = MapRange(imageSize, imageWidthMin, imageWidthMax, fontSizeMin, fontSizeMax);
 
-            GUILayout.Label(imageSize.ToString(), sliderLabelStyle);
-        }
-
-        private int MapRange(int value, int minA, int maxA, int minB, int maxB)
-        {
-            float aValue = Mathf.InverseLerp(minA, maxA, value);
-            float bValue = Mathf.Lerp(minB, maxB, aValue);
-            return Mathf.RoundToInt(bValue);
+            GUILayout.FlexibleSpace();
         }
 
         private void DisplayFoldoutContent(PackModel pack)
@@ -413,7 +437,7 @@ namespace PixelShenanigans.SyntyStoreSearch
 
                 GUILayout.BeginVertical();
 
-                if (GUILayout.Button(new GUIContent(item.ImageTexture, item.Name),
+                if (GUILayout.Button(new GUIContent(item.ImageTexture/*, item.Name*/),
                                      imageStyle,
                                      GUILayout.Width(imageSize),
                                      GUILayout.Height(imageSize),
@@ -421,17 +445,14 @@ namespace PixelShenanigans.SyntyStoreSearch
                 {
                     if (ownedPackages.ContainsKey(pack.Name))
                     {
-                        if (ownedPackages.ContainsKey(pack.Name))
+                        var package = ownedPackages[pack.Name];
+                        if (package.IsCurrentlyImported)
                         {
-                            var package = ownedPackages[pack.Name];
-                            if (package.IsCurrentlyImported)
+                            if (package.Assets.ContainsKey(item.Name))
                             {
-                                if (package.Assets.ContainsKey(item.Name))
-                                {
-                                    EditorGUIUtility.PingObject(
-                                        AssetDatabase.LoadMainAssetAtPath(
-                                            Path.Combine(AssetPathPrefix, package.Name, package.Assets[item.Name])));
-                                }
+                                EditorGUIUtility.PingObject(
+                                    AssetDatabase.LoadMainAssetAtPath(
+                                        Path.Combine(AssetPathPrefix, package.Name, package.Assets[item.Name])));
                             }
                         }
                     }
@@ -487,12 +508,13 @@ namespace PixelShenanigans.SyntyStoreSearch
 
             foreach (var file in files)
             {
-                Debug.Log(file);
+                Debug.Log($"Scanning {file}");
                 
                 var package = GetUnityPackageContents(file);
                 if (!ownedPackages.ContainsKey(package.Name))
                 {
                     ownedPackages.Add(package.Name, package);
+                    CalculatePackageStats();
                 }
 
                 yield return null;
@@ -548,31 +570,6 @@ namespace PixelShenanigans.SyntyStoreSearch
             };
         }
 
-        private string GetAssetName(string assetPath)
-        {
-            int startIndex = assetPath.LastIndexOf("/") + 1;
-            int endIndex = assetPath.LastIndexOf(".");
-            return assetPath.Substring(startIndex, endIndex - startIndex);
-        }
-
-        private string GetPackageName(string assetPath)
-        {
-            int endIndex = assetPath.IndexOf("/");
-            return assetPath.Substring(0, endIndex);
-        }
-
-        private bool IsCurrentlyImported(string assetPath)
-        {
-            string importedAssetPath = Path.Combine(Application.dataPath, assetPath);
-            return File.Exists(importedAssetPath);
-        }
-
-        private bool IsCurrentlyImported(string name, string assetPath)
-        {
-            string importedAssetPath = Path.Combine(Application.dataPath, name, assetPath);
-            return File.Exists(importedAssetPath);
-        }
-
         private List<PackModel> GetSearchResults(string term)
         {
             searchMessage = "";
@@ -604,9 +601,35 @@ namespace PixelShenanigans.SyntyStoreSearch
             return null;
         }
 
-        private bool IsPackOwned(string packName)
+        private string GetAssetName(string assetPath)
         {
-            return ownedPackages.ContainsKey(packName);
+            int startIndex = assetPath.LastIndexOf("/") + 1;
+            int endIndex = assetPath.LastIndexOf(".");
+            return assetPath.Substring(startIndex, endIndex - startIndex);
+        }
+
+        private string GetPackageName(string assetPath)
+        {
+            int endIndex = assetPath.IndexOf("/");
+            return assetPath.Substring(0, endIndex);
+        }
+
+        private bool IsCurrentlyImported(string assetPath)
+        {
+            string importedAssetPath = Path.Combine(Application.dataPath, assetPath);
+            return File.Exists(importedAssetPath);
+        }
+
+        private bool IsCurrentlyImported(string name, string assetPath)
+        {
+            string importedAssetPath = Path.Combine(Application.dataPath, name, assetPath);
+            return File.Exists(importedAssetPath);
+        }
+
+        private void CalculatePackageStats()
+        {
+            ownedPackageCount = ownedPackages.Count;
+            importedPackageCount = ownedPackages.Values.Count(x => x.IsCurrentlyImported);
         }
 
         private int CalculateImagePosition(int position)
@@ -623,7 +646,7 @@ namespace PixelShenanigans.SyntyStoreSearch
             return position;
         }
 
-        private Texture2D GetImageFromUrlAsTexture(string url)
+        private static Texture2D GetImageFromUrlAsTexture(string url)
         {
             Texture2D texture = new Texture2D(2, 2);
 
@@ -690,6 +713,13 @@ namespace PixelShenanigans.SyntyStoreSearch
             string appDataPath = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
             return Path.Combine(appDataPath, "SyntySearch");
 #endif
+        }
+
+        private int MapRange(int value, int minA, int maxA, int minB, int maxB)
+        {
+            float aValue = Mathf.InverseLerp(minA, maxA, value);
+            float bValue = Mathf.Lerp(minB, maxB, aValue);
+            return Mathf.RoundToInt(bValue);
         }
 
         private Dictionary<string, PackageModel> ToModels(List<PackageDto> packageDtos)
