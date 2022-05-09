@@ -5,6 +5,7 @@ using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.IO;
+using System.IO.Compression;
 using System.Linq;
 using System.Net;
 using System.Text;
@@ -27,6 +28,7 @@ namespace PixelShenanigans.SyntyStoreSearch
         const string SearchPart = "prefab/search/";
         const string SetLocationText = "Set package location";
         const string AssetPathPrefix = "Assets/";
+        const string PrefabFileExt = ".prefab";
         const string ImageSizeEditorPrefsKey = "ImageSize";
         const string CurrentAppVersion = "1.2";
         const string CurrentCacheVersion = "1.1";
@@ -67,6 +69,7 @@ namespace PixelShenanigans.SyntyStoreSearch
         Vector2 scrollPos;
         List<PackModel> sortedSearchData;
         List<string> packageFolderPaths = new List<string>();
+        List<FileSearchTermData> fileSearchTermDataList = new List<FileSearchTermData>();
         Dictionary<string, PackageModel> ownedPackages = new Dictionary<string, PackageModel>();
 
         [MenuItem("Synty Tools/" + EditorTitle)]
@@ -80,6 +83,7 @@ namespace PixelShenanigans.SyntyStoreSearch
         private void OnEnable()
         {
             searchMessage = "";
+            AssetDatabase.importPackageCompleted += OnImportPackageCompleted;
 
             if (EditorPrefs.HasKey(ImageSizeEditorPrefsKey))
             {
@@ -115,8 +119,20 @@ namespace PixelShenanigans.SyntyStoreSearch
             }
         }
 
+        private void OnImportPackageCompleted(string packageName)
+        {
+            Debug.Log($"Imported {packageName}");
+
+            if (ownedPackages.TryGetValue(packageName, out var package))
+            {
+                package.IsCurrentlyImported = true;
+            }
+        }
+
         private void OnDestroy()
         {
+            AssetDatabase.importPackageCompleted -= OnImportPackageCompleted;
+
             EditorPrefs.SetInt(ImageSizeEditorPrefsKey, imageSize);
 
             if (!cacheIsDirty) return;
@@ -311,7 +327,7 @@ namespace PixelShenanigans.SyntyStoreSearch
             {
                 var path = EditorUtility.OpenFolderPanel(SetLocationText, "", "");
 #if UNITY_EDITOR_WIN
-                path = path.Replace(" /", "\\");
+                path = path.Replace("/", @"\");
 #endif
                 FetchPackageFiles(path);
             }
@@ -384,7 +400,7 @@ namespace PixelShenanigans.SyntyStoreSearch
                     else
                     {
                         foldoutContent.text += "Owned";
-                        foldoutContent.tooltip = "Try the Synty Importer tool!";
+                        foldoutContent.tooltip = "Click an item to import the package!";
                     }
                 }
                 else
@@ -455,6 +471,10 @@ namespace PixelShenanigans.SyntyStoreSearch
                                         Path.Combine(AssetPathPrefix, package.Name, package.Assets[item.Name])));
                             }
                         }
+                        else
+                        {
+                            AssetDatabase.ImportPackage(package.Path, true);
+                        }
                     }
                     else
                     {
@@ -485,15 +505,18 @@ namespace PixelShenanigans.SyntyStoreSearch
         {
             string defaultPackageLocation = GetDefaultUnityPackageLocation();
 
+            CoroutineEditorUtility.StartCoroutine(GetUnityPackagesRoutine(defaultPackageLocation));
+
             if (!packageFolderPaths.Contains(defaultPackageLocation))
             {
-                CoroutineEditorUtility.StartCoroutine(GetUnityPackagesRoutine(defaultPackageLocation));
                 packageFolderPaths.Add(defaultPackageLocation);
             }
 
+            CoroutineEditorUtility.StartCoroutine(GetUnityPackagesRoutine(path));
+            CoroutineEditorUtility.StartCoroutine(GetZipFilesRoutine(path));
+
             if (!packageFolderPaths.Contains(path))
             {
-                CoroutineEditorUtility.StartCoroutine(GetUnityPackagesRoutine(path));
                 packageFolderPaths.Add(path);
             }
 
@@ -504,7 +527,10 @@ namespace PixelShenanigans.SyntyStoreSearch
 
         private IEnumerator GetUnityPackagesRoutine(string path)
         {
-            string[] files = Directory.GetFiles(path, "polygon*.unitypackage", SearchOption.AllDirectories);
+            string[] polygonFiles = Directory.GetFiles(path, "polygon*.unitypackage", SearchOption.AllDirectories);
+            string[] simpleFiles = Directory.GetFiles(path, "simple*.unitypackage", SearchOption.AllDirectories);
+            List<string> files = polygonFiles.ToList();
+            files.AddRange(simpleFiles);
 
             foreach (var file in files)
             {
@@ -537,8 +563,9 @@ namespace PixelShenanigans.SyntyStoreSearch
                         {
                             string assetPath = Encoding.ASCII.GetString(fileData).Trim('\n', '0');
 
-                            if (assetPath.EndsWith(".prefab"))
+                            if (assetPath.EndsWith(PrefabFileExt))
                             {
+                                //TODO: Contains
                                 if (assetPath.StartsWith(AssetPathPrefix))
                                 {
                                     assetPath = assetPath.Remove(0, AssetPathPrefix.Length);
@@ -546,8 +573,7 @@ namespace PixelShenanigans.SyntyStoreSearch
                                     {
                                         firstAssetPath = assetPath;
                                     }
-                                    int index = assetPath.IndexOf("/");
-                                    assetPath = assetPath.Remove(0, index + 1);
+                                    assetPath = RemovePackageName(assetPath);
                                 }
 
                                 string assetName = GetAssetName(assetPath);
@@ -570,6 +596,102 @@ namespace PixelShenanigans.SyntyStoreSearch
             };
         }
 
+        private IEnumerator GetZipFilesRoutine(string path)
+        {
+            string[] files = Directory.GetFiles(path, "simple*.zip", SearchOption.AllDirectories);
+
+            foreach (var file in files)
+            {
+                Debug.Log($"Scanning {file}");
+
+                var package = GetZipFileContents(file);
+                if (!ownedPackages.ContainsKey(package.Name))
+                {
+                    ownedPackages.Add(package.Name, package);
+                    CalculatePackageStats();
+                }
+
+                yield return null;
+            }
+        }
+
+        private PackageModel GetZipFileContents(string filePath)
+        {
+            var assets = new Dictionary<string, string>();
+            string firstAssetPath = null;
+
+            using (var zip = ZipFile.Open(filePath, ZipArchiveMode.Read))
+            {
+                var fileSearchTermData = new FileSearchTermData()
+                {
+                    SearchTerm_Assets = new Dictionary<string, List<int>>()
+                };
+
+                int assetIndex = 0;
+
+                foreach (var entry in zip.Entries)
+                {
+                    string assetPath = entry.FullName;
+
+                    if (assetPath.EndsWith(PrefabFileExt))
+                    {
+                        assetPath = GetPathUnderAssets(assetPath);
+
+                        if (string.IsNullOrWhiteSpace(fileSearchTermData.PackageName))
+                        {
+                            firstAssetPath = assetPath;
+                            fileSearchTermData.PackageName = GetPackageName(assetPath);
+                        }
+
+                        assetPath = RemovePackageName(assetPath);
+
+                        string assetName = GetAssetName(assetPath);
+                        if (!assets.ContainsKey(assetName))
+                        {
+                            assets.Add(assetName, assetPath);
+                        }
+
+                        UpdateFullTextSearch(fileSearchTermData, assetName, assetIndex);
+                        assetIndex++;
+                    }
+                }
+            }
+
+            return new PackageModel()
+            {
+                Name = GetPackageName(firstAssetPath),
+                Path = filePath,
+                Assets = assets,
+                IsCurrentlyImported = IsCurrentlyImported(firstAssetPath)
+            };
+        }
+
+        private void UpdateFullTextSearch(FileSearchTermData fileSearchTermData, string assetName, int assetIndex)
+        {
+            var words = assetName.SplitCamelCase();
+
+            foreach (var word in words)
+            {
+                if (word.Length > 2)
+                {
+                    string wordToAdd = word.ToLower();
+
+                    if (fileSearchTermData.SearchTerm_Assets.TryGetValue(wordToAdd, out var assetList))
+                    {
+                        assetList.Add(assetIndex);
+                    }
+                    else
+                    {
+                        assetList = new List<int>();
+                        assetList.Add(assetIndex);
+                        fileSearchTermData.SearchTerm_Assets.Add(wordToAdd, assetList);
+                    }
+                }
+            }
+
+            fileSearchTermDataList.Add(fileSearchTermData);
+        }
+
         private List<PackModel> GetSearchResults(string term)
         {
             searchMessage = "";
@@ -582,7 +704,7 @@ namespace PixelShenanigans.SyntyStoreSearch
                     byte[] data = client.DownloadData(url);
                     if (data != null)
                     {
-                        var searchData = JsonUtility.FromJson<SearchData>(Encoding.ASCII.GetString(data));
+                        var searchData = JsonUtility.FromJson<WebSearchData>(Encoding.ASCII.GetString(data));
                         if (searchData.success == true)
                         {
                             sortedSearchData = SortSearchResults(searchData);
@@ -599,6 +721,18 @@ namespace PixelShenanigans.SyntyStoreSearch
             }
 
             return null;
+        }
+
+        private string GetPathUnderAssets(string assetPath)
+        {
+            int index = assetPath.IndexOf(AssetPathPrefix) + AssetPathPrefix.Length;
+            return assetPath.Substring(index);
+        }
+
+        private string RemovePackageName(string  assetPath)
+        {
+            int index = assetPath.IndexOf("/");
+            return assetPath.Remove(0, index + 1);
         }
 
         private string GetAssetName(string assetPath)
@@ -659,7 +793,7 @@ namespace PixelShenanigans.SyntyStoreSearch
             return texture;
         }
 
-        private List<PackModel> SortSearchResults(SearchData results)
+        private List<PackModel> SortSearchResults(WebSearchData results)
         {
             List<PackModel> packs = new List<PackModel>();
 
@@ -695,23 +829,23 @@ namespace PixelShenanigans.SyntyStoreSearch
 
         private string GetDefaultUnityPackageLocation()
         {
-#if UNITY_EDITOR_WIN
+#if UNITY_EDITOR_OSX
+            string appDataPath = Environment.GetFolderPath(Environment.SpecialFolder.Personal);
+            return Path.Combine(appDataPath, @"Library/Unity/Asset Store-5.x/Synty Studios";
+#else
             string appDataPath = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
             return Path.Combine(appDataPath, @"Unity\Asset Store-5.x\Synty Studios");
-#elif UNITY_EDITOR_OSX
-            return "~/Library/Unity/Asset Store-5.x/Synty Studios";
-#else
-            return "~/.local/share/unity3d/Asset Store-5.x/Synty Studios";
 #endif
         }
 
         public string GetCacheLocation()
         {
 #if UNITY_EDITOR_OSX
-            return Environment.GetFolderPath(Environment.SpecialFolder.Personal) + @"/Library/SyntySearch/";
+            string appDataPath = Environment.GetFolderPath(Environment.SpecialFolder.Personal);
+            return Path.Combine(appDataPath, @"Library/SyntySearch/";
 #else
             string appDataPath = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
-            return Path.Combine(appDataPath, "SyntySearch");
+            return Path.Combine(appDataPath, @"SyntySearch");
 #endif
         }
 
@@ -772,14 +906,14 @@ namespace PixelShenanigans.SyntyStoreSearch
     }
 
     [Serializable]
-    public class SearchData
+    public class WebSearchData
     {
         public bool success;
-        public SearchItem[] data;
+        public WebSearchItem[] data;
     }
 
     [Serializable]
-    public class SearchItem
+    public class WebSearchItem
     {
         public string name;
         public string pack;
@@ -829,5 +963,19 @@ namespace PixelShenanigans.SyntyStoreSearch
     {
         public string Version;
         public List<PackageDto> packageDtos;
+    }
+
+    [Serializable]
+    public class FileSearchTermData
+    {
+        public string PackageName;
+        public Dictionary<string, List<int>> SearchTerm_Assets;
+    }
+
+    [Serializable]
+    public class FileSearchData
+    {
+        public string Name;
+        public string PackageName;
     }
 }
