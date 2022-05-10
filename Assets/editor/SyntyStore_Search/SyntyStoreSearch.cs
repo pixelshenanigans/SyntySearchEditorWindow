@@ -29,8 +29,11 @@ namespace PixelShenanigans.SyntyStoreSearch
         const string SetLocationText = "Set package location";
         const string AssetPathPrefix = "Assets/";
         const string PrefabFileExt = ".prefab";
+        const string CacheFileName = "cache.json";
+        const string LocationFileName = "locations.json";
+        const string SearchFileName = "search.json";
         const string ImageSizeEditorPrefsKey = "ImageSize";
-        const string CurrentAppVersion = "1.2";
+        const string CurrentAppVersion = "1.3";
         const string CurrentCacheVersion = "1.1";
         const int WindowWidth = 500;
         const int WindowHeight = 700;
@@ -41,6 +44,11 @@ namespace PixelShenanigans.SyntyStoreSearch
         const int fontSizeMin = 8;
         const int fontSizeMax = 14;
 
+        string _cachePath = null;
+        public string CacheLocation
+        {
+            get { return _cachePath ?? (_cachePath = GetCacheLocation()); }
+        }
         bool cacheIsDirty = false;
         int imageSize = 120;
         int fontSize = 15;
@@ -68,8 +76,8 @@ namespace PixelShenanigans.SyntyStoreSearch
         GUIContent setLocationContent;
         Vector2 scrollPos;
         List<PackModel> sortedSearchData;
-        List<string> packageFolderPaths = new List<string>();
-        List<FileSearchTermData> fileSearchTermDataList = new List<FileSearchTermData>();
+        List<string> packageLocations = new List<string>();
+        List<FileSearchTermData> searchTermDataList = new List<FileSearchTermData>();
         Dictionary<string, PackageModel> ownedPackages = new Dictionary<string, PackageModel>();
 
         [MenuItem("Synty Tools/" + EditorTitle)]
@@ -90,8 +98,16 @@ namespace PixelShenanigans.SyntyStoreSearch
                 imageSize = EditorPrefs.GetInt(ImageSizeEditorPrefsKey);
             }
 
-            var locationsFilePath = Path.Combine(GetCacheLocation(), "locations.json");
-            var cacheFilePath = Path.Combine(GetCacheLocation(), "cache.json");
+            ownedPackages = LoadOwnedPackageData();
+            CalculatePackageStats();
+
+            packageLocations = LoadLocationData();
+            searchTermDataList = LoadSearchData();
+        }
+
+        private Dictionary<string, PackageModel> LoadOwnedPackageData()
+        {
+            var cacheFilePath = Path.Combine(CacheLocation, CacheFileName);
 
             if (File.Exists(cacheFilePath))
             {
@@ -104,29 +120,40 @@ namespace PixelShenanigans.SyntyStoreSearch
                 {
                     searchMessage = "Cache files need to be updated - please set package location to re-scan";
                     File.Delete(cacheFilePath);
-                    File.Delete(locationsFilePath);
-                    return;
+                    return new Dictionary<string, PackageModel>();
                 }
 
-                ownedPackages = ToModels(packageDtos);
-                CalculatePackageStats();            }
+                return ToModels(packageDtos);
+            }
 
+            return new Dictionary<string, PackageModel>();
+        }
+
+        private List<string> LoadLocationData()
+        {
+            var locationsFilePath = Path.Combine(CacheLocation, LocationFileName);
             if (File.Exists(locationsFilePath))
             {
                 string locationsJson = File.ReadAllText(locationsFilePath);
                 var folderPathsDto = JsonUtility.FromJson<PackageFolderPathsDto>(locationsJson);
-                packageFolderPaths = folderPathsDto.folderPaths;
+                return folderPathsDto.folderPaths;
             }
+
+            return new List<string>();
         }
 
-        private void OnImportPackageCompleted(string packageName)
+        private List<FileSearchTermData> LoadSearchData()
         {
-            Debug.Log($"Imported {packageName}");
-
-            if (ownedPackages.TryGetValue(packageName, out var package))
+            var searchFilePath = Path.Combine(CacheLocation, SearchFileName);
+            if (File.Exists(searchFilePath))
             {
-                package.IsCurrentlyImported = true;
+                string searchJson = File.ReadAllText(searchFilePath);
+                var fileSearchDataDto = JsonUtility.FromJson<FileSearchDataListDto>(searchJson);
+                var searchTermDataListDto = fileSearchDataDto.PackageSearchTerms;
+                return ToModels(searchTermDataListDto);
             }
+
+            return new List<FileSearchTermData>();
         }
 
         private void OnDestroy()
@@ -137,16 +164,27 @@ namespace PixelShenanigans.SyntyStoreSearch
 
             if (!cacheIsDirty) return;
 
-            string cachePath = GetCacheLocation();
-            DirectoryInfo directory = new DirectoryInfo(cachePath);
+            CreateCacheFolder();
+
+            SaveOwnedPackageData();
+            SaveLocationData();
+            SaveSearchData();
+
+            cacheIsDirty = false;
+        }
+
+        private void CreateCacheFolder()
+        {
+            DirectoryInfo directory = new DirectoryInfo(CacheLocation);
             if (!directory.Exists)
             {
                 directory.Create();
             }
+        }
 
-            var locationsFilePath = Path.Combine(GetCacheLocation(), "locations.json");
-            var cacheFilePath = Path.Combine(GetCacheLocation(), "cache.json");
-
+        private void SaveOwnedPackageData()
+        {
+            var cacheFilePath = Path.Combine(CacheLocation, CacheFileName);
             var ownedPackagesDto = new OwnedPackagesDto()
             {
                 packageDtos = FromModels(ownedPackages),
@@ -154,15 +192,28 @@ namespace PixelShenanigans.SyntyStoreSearch
             };
             string cacheJson = JsonUtility.ToJson(ownedPackagesDto);
             File.WriteAllText(cacheFilePath, cacheJson);
+        }
 
+        private void SaveLocationData()
+        {
+            var locationsFilePath = Path.Combine(CacheLocation, LocationFileName);
             var folderPathsDto = new PackageFolderPathsDto()
             {
-                folderPaths = packageFolderPaths
+                folderPaths = packageLocations
             };
             string locationsJson = JsonUtility.ToJson(folderPathsDto);
             File.WriteAllText(locationsFilePath, locationsJson);
+        }
 
-            cacheIsDirty = false;
+        private void SaveSearchData()
+        {
+            var textSearchFilePath = Path.Combine(CacheLocation, SearchFileName);
+            var searchDataDto = new FileSearchDataListDto()
+            {
+                PackageSearchTerms = FromModels(searchTermDataList)
+            };
+            string searchJson = JsonUtility.ToJson(searchDataDto);
+            File.WriteAllText(textSearchFilePath, searchJson);
         }
 
         void OnInspectorUpdate()
@@ -296,9 +347,9 @@ namespace PixelShenanigans.SyntyStoreSearch
 
             setLocationContent = new GUIContent(
                 SetLocationText,
-                packageFolderPaths.Count == 0
+                packageLocations.Count == 0
                     ? "Specify the location of your Synty unitypackage files (optional)"
-                    : string.Join("\n", packageFolderPaths));
+                    : string.Join("\n", packageLocations));
         }
 
         private void DisplayHeaderContent()
@@ -325,7 +376,7 @@ namespace PixelShenanigans.SyntyStoreSearch
 
             if (GUILayout.Button(setLocationContent, buttonStyle))
             {
-                var path = EditorUtility.OpenFolderPanel(SetLocationText, "", "");
+                var path = EditorUtility.OpenFolderPanel(SetLocationText, packageLocations.LastOrDefault(), "");
 #if UNITY_EDITOR_WIN
                 path = path.Replace("/", @"\");
 #endif
@@ -363,7 +414,7 @@ namespace PixelShenanigans.SyntyStoreSearch
 
             if (performedSearch)
             {
-                GetSearchResults(searchTerm);
+                sortedSearchData = GetSearchResults(searchTerm);
             }
 
             GUILayout.EndHorizontal();
@@ -505,19 +556,21 @@ namespace PixelShenanigans.SyntyStoreSearch
         {
             string defaultPackageLocation = GetDefaultUnityPackageLocation();
 
-            CoroutineEditorUtility.StartCoroutine(GetUnityPackagesRoutine(defaultPackageLocation));
+            CoroutineEditorUtility.StartCoroutine(GetUnityPackagesRoutine(path, "polygon*.unitypackage"));
+            CoroutineEditorUtility.StartCoroutine(GetUnityPackagesRoutine(path, "simple*.unitypackage", fullTextSearch: true));
 
-            if (!packageFolderPaths.Contains(defaultPackageLocation))
+            if (!packageLocations.Contains(defaultPackageLocation))
             {
-                packageFolderPaths.Add(defaultPackageLocation);
+                packageLocations.Add(defaultPackageLocation);
             }
 
-            CoroutineEditorUtility.StartCoroutine(GetUnityPackagesRoutine(path));
-            CoroutineEditorUtility.StartCoroutine(GetZipFilesRoutine(path));
+            CoroutineEditorUtility.StartCoroutine(GetUnityPackagesRoutine(path, "polygon*.unitypackage"));
+            CoroutineEditorUtility.StartCoroutine(GetUnityPackagesRoutine(path, "simple*.unitypackage", fullTextSearch: true));
+            CoroutineEditorUtility.StartCoroutine(GetZipFilesRoutine(path, "simple*.zip", fullTextSearch: true));
 
-            if (!packageFolderPaths.Contains(path))
+            if (!packageLocations.Contains(path))
             {
-                packageFolderPaths.Add(path);
+                packageLocations.Add(path);
             }
 
             yield return null;
@@ -525,18 +578,15 @@ namespace PixelShenanigans.SyntyStoreSearch
             searchMessage = "";
         }
 
-        private IEnumerator GetUnityPackagesRoutine(string path)
+        private IEnumerator GetUnityPackagesRoutine(string path, string pattern, bool fullTextSearch = false)
         {
-            string[] polygonFiles = Directory.GetFiles(path, "polygon*.unitypackage", SearchOption.AllDirectories);
-            string[] simpleFiles = Directory.GetFiles(path, "simple*.unitypackage", SearchOption.AllDirectories);
-            List<string> files = polygonFiles.ToList();
-            files.AddRange(simpleFiles);
+            string[] files = Directory.GetFiles(path, pattern, SearchOption.AllDirectories);
 
             foreach (var file in files)
             {
                 Debug.Log($"Scanning {file}");
                 
-                var package = GetUnityPackageContents(file);
+                var package = GetUnityPackageContents(file, fullTextSearch);
                 if (!ownedPackages.ContainsKey(package.Name))
                 {
                     ownedPackages.Add(package.Name, package);
@@ -547,10 +597,15 @@ namespace PixelShenanigans.SyntyStoreSearch
             }
         }
 
-        private PackageModel GetUnityPackageContents(string filePath)
+        private PackageModel GetUnityPackageContents(string filePath, bool fullTextSearch = false)
         {
             var assets = new Dictionary<string, string>();
             string firstAssetPath = null;
+            int assetIndex = 0;
+            var fileSearchTermData = new FileSearchTermData()
+            {
+                SearchTerms = new Dictionary<string, List<int>>()
+            };
 
             using (var fileStream = File.Open(filePath, FileMode.Open))
             {
@@ -561,6 +616,7 @@ namespace PixelShenanigans.SyntyStoreSearch
                     {
                         if (fileName.EndsWith("pathname"))
                         {
+
                             string assetPath = Encoding.ASCII.GetString(fileData).Trim('\n', '0');
 
                             if (assetPath.EndsWith(PrefabFileExt))
@@ -572,6 +628,7 @@ namespace PixelShenanigans.SyntyStoreSearch
                                     if (firstAssetPath == null)
                                     {
                                         firstAssetPath = assetPath;
+                                        fileSearchTermData.PackageName = GetPackageName(firstAssetPath);
                                     }
                                     assetPath = RemovePackageName(assetPath);
                                 }
@@ -580,9 +637,25 @@ namespace PixelShenanigans.SyntyStoreSearch
                                 if (!assets.ContainsKey(assetName))
                                 {
                                     assets.Add(assetName, assetPath);
+
+                                    if (fullTextSearch)
+                                    {
+                                        UpdateFullTextSearch(fileSearchTermData, assetName, assetIndex);
+                                    }
+
+                                    assetIndex++;
+                                }
+                                else
+                                {
+                                    Debug.Log($"Duplicate asset name! {assetName}");
                                 }
                             }
                         }
+                    }
+
+                    if (fullTextSearch)
+                    {
+                        AddPackageTextSearch(fileSearchTermData);
                     }
                 }
             }
@@ -596,7 +669,7 @@ namespace PixelShenanigans.SyntyStoreSearch
             };
         }
 
-        private IEnumerator GetZipFilesRoutine(string path)
+        private IEnumerator GetZipFilesRoutine(string path, string pattern, bool fullTextSearch = false)
         {
             string[] files = Directory.GetFiles(path, "simple*.zip", SearchOption.AllDirectories);
 
@@ -624,7 +697,7 @@ namespace PixelShenanigans.SyntyStoreSearch
             {
                 var fileSearchTermData = new FileSearchTermData()
                 {
-                    SearchTerm_Assets = new Dictionary<string, List<int>>()
+                    SearchTerms = new Dictionary<string, List<int>>()
                 };
 
                 int assetIndex = 0;
@@ -649,12 +722,19 @@ namespace PixelShenanigans.SyntyStoreSearch
                         if (!assets.ContainsKey(assetName))
                         {
                             assets.Add(assetName, assetPath);
-                        }
 
-                        UpdateFullTextSearch(fileSearchTermData, assetName, assetIndex);
-                        assetIndex++;
+                            UpdateFullTextSearch(fileSearchTermData, assetName, assetIndex);
+
+                            assetIndex++;
+                        }
+                        else
+                        {
+                            Debug.Log($"Duplicate asset name! {assetName}");
+                        }
                     }
                 }
+
+                AddPackageTextSearch(fileSearchTermData);
             }
 
             return new PackageModel()
@@ -676,7 +756,7 @@ namespace PixelShenanigans.SyntyStoreSearch
                 {
                     string wordToAdd = word.ToLower();
 
-                    if (fileSearchTermData.SearchTerm_Assets.TryGetValue(wordToAdd, out var assetList))
+                    if (fileSearchTermData.SearchTerms.TryGetValue(wordToAdd, out var assetList))
                     {
                         assetList.Add(assetIndex);
                     }
@@ -684,36 +764,37 @@ namespace PixelShenanigans.SyntyStoreSearch
                     {
                         assetList = new List<int>();
                         assetList.Add(assetIndex);
-                        fileSearchTermData.SearchTerm_Assets.Add(wordToAdd, assetList);
+                        fileSearchTermData.SearchTerms.Add(wordToAdd, assetList);
                     }
                 }
             }
-
-            fileSearchTermDataList.Add(fileSearchTermData);
         }
 
         private List<PackModel> GetSearchResults(string term)
         {
             searchMessage = "";
-            if (searchTerm.Length >= 3)
+
+            if (term.Length >= 3)
             {
-                string url = SiteUrl + ApiPart + SearchPart + term;
-                using (WebClient client = new WebClient())
+                var searchData = GetSearchResultsFromWeb(term);
+            
+                var localSearchData = GetSearchResultsFromLocal(term);
+            
+                if (searchData != null)
                 {
-                    client.Headers.Add("Referer", SiteUrl);
-                    byte[] data = client.DownloadData(url);
-                    if (data != null)
+                    if (localSearchData != null)
                     {
-                        var searchData = JsonUtility.FromJson<WebSearchData>(Encoding.ASCII.GetString(data));
-                        if (searchData.success == true)
-                        {
-                            sortedSearchData = SortSearchResults(searchData);
-                            searchMessage = $"Search returned {sortedSearchData.Sum(x => x.SearchItems.Count)} results.";
-                            return sortedSearchData;
-                        }
+                        searchData.AddRange(localSearchData);
                     }
                 }
-                searchMessage = "Unable to get search results, please try later.";
+                else
+                {
+                    searchData = localSearchData;
+                }
+
+                searchMessage = $"Search returned {searchData.Sum(x => x.SearchItems.Count)} results.";
+
+                return searchData;
             }
             else
             {
@@ -721,6 +802,96 @@ namespace PixelShenanigans.SyntyStoreSearch
             }
 
             return null;
+        }
+
+        private List<PackModel> GetSearchResultsFromWeb(string term)
+        {
+            string url = SiteUrl + ApiPart + SearchPart + term;
+            using (WebClient client = new WebClient())
+            {
+                client.Headers.Add("Referer", SiteUrl);
+                byte[] data = client.DownloadData(url);
+                if (data != null)
+                {
+                    var searchData = JsonUtility.FromJson<WebSearchData>(Encoding.ASCII.GetString(data));
+                    if (searchData.success == true)
+                    {
+                        var webSearchData = SortWebSearchResults(searchData);
+                        return webSearchData;
+                    }
+                }
+            }
+
+            searchMessage = "Unable to get search results, please try later.";
+
+            return null;
+        }
+
+        private List<PackModel> GetSearchResultsFromLocal(string term)
+        {
+            //TODO
+            foreach (var package in searchTermDataList)
+            {
+                List<int> results = package.SearchTerms.Keys
+                    .Where(x => x.Contains(term))
+                    .SelectMany(x => package.SearchTerms[x]).ToList();
+            }
+            return null;
+        }
+
+        private List<PackModel> SortWebSearchResults(WebSearchData results)
+        {
+            List<PackModel> packs = new List<PackModel>();
+
+            var packNames = results.data
+                .Select(x => x.pack)
+                .Distinct()
+                .ToList();
+
+            foreach (var packName in packNames)
+            {
+                packs.Add(new PackModel()
+                {
+                    Name = packName,
+                    StoreUrl = results.data
+                        .Where(x => x.pack == packName)
+                        .Select(x => x.packStoreUrl)
+                        .First(),
+                    FoldoutIsExpanded = false,
+                    SearchItems = results.data
+                        .Where(x => x.pack == packName)
+                        .Select(x => new SearchItemModel()
+                        {
+                            Name = x.name,
+                            ImagePath = x.imagePath,
+                            ImageTexture = null
+                        })
+                        .ToList()
+                });
+            }
+
+            return packs;
+        }
+
+        private void OnImportPackageCompleted(string packageName)
+        {
+            Debug.Log($"Imported {packageName}");
+
+            if (ownedPackages.TryGetValue(packageName, out var package))
+            {
+                package.IsCurrentlyImported = true;
+            }
+        }
+
+        private void AddPackageTextSearch(FileSearchTermData searchTermData)
+        {
+            int index = searchTermDataList.FindIndex(x => x.PackageName == searchTermData.PackageName);
+            if (index != -1)
+            {
+                searchTermDataList.RemoveAt(index);
+            }
+
+            searchTermDataList.Add(searchTermData);
         }
 
         private string GetPathUnderAssets(string assetPath)
@@ -793,40 +964,6 @@ namespace PixelShenanigans.SyntyStoreSearch
             return texture;
         }
 
-        private List<PackModel> SortSearchResults(WebSearchData results)
-        {
-            List<PackModel> packs = new List<PackModel>();
-
-            var packNames = results.data
-                .Select(x => x.pack)
-                .Distinct()
-                .ToList();
-
-            foreach (var packName in packNames)
-            {
-                packs.Add(new PackModel()
-                {
-                    Name = packName,
-                    StoreUrl = results.data
-                        .Where(x => x.pack == packName)
-                        .Select(x => x.packStoreUrl)
-                        .First(),
-                    FoldoutIsExpanded = false,
-                    SearchItems = results.data
-                        .Where(x => x.pack == packName)
-                        .Select(x => new SearchItemModel()
-                        {
-                            Name = x.name,
-                            ImagePath = x.imagePath,
-                            ImageTexture = null
-                        })
-                        .ToList()
-                });
-            }
-
-            return packs;
-        }
-
         private string GetDefaultUnityPackageLocation()
         {
 #if UNITY_EDITOR_OSX
@@ -842,7 +979,7 @@ namespace PixelShenanigans.SyntyStoreSearch
         {
 #if UNITY_EDITOR_OSX
             string appDataPath = Environment.GetFolderPath(Environment.SpecialFolder.Personal);
-            return Path.Combine(appDataPath, @"Library/SyntySearch/";
+            return Path.Combine(appDataPath, @"Library/SyntySearch";
 #else
             string appDataPath = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
             return Path.Combine(appDataPath, @"SyntySearch");
@@ -868,21 +1005,7 @@ namespace PixelShenanigans.SyntyStoreSearch
             return packages;
         }
 
-        private PackageModel ToModel(PackageDto packageDto)
-        {
-            var package = new PackageModel()
-            {
-                Name = packageDto.Name,
-                Path = packageDto.Path,
-                Assets = packageDto.Assets.Select(x => x.Split('|')).ToDictionary(s => s[0], s => s[1])
-            };
-
-            package.IsCurrentlyImported = IsCurrentlyImported(package.Name, package.Assets.Values.First());
-            
-            return package;
-        }
-
-        private List<PackageDto> FromModels(Dictionary<string,PackageModel> packages)
+        private List<PackageDto> FromModels(Dictionary<string, PackageModel> packages)
         {
             List<PackageDto> packageDtos = new List<PackageDto>();
 
@@ -894,13 +1017,82 @@ namespace PixelShenanigans.SyntyStoreSearch
             return packageDtos;
         }
 
+        private PackageModel ToModel(PackageDto packageDto)
+        {
+            var package = new PackageModel()
+            {
+                Name = packageDto.Name,
+                Path = packageDto.Path,
+                Assets = packageDto.Assets
+                    .Select(x => x.Split('|'))
+                    .ToDictionary(s => s[0], s => s[1])
+            };
+
+            package.IsCurrentlyImported = IsCurrentlyImported(package.Name, package.Assets.Values.First());
+            
+            return package;
+        }
+
         private PackageDto FromModel(PackageModel package)
         {
             return new PackageDto()
             {
                 Name = package.Name,
                 Path = package.Path,
-                Assets = package.Assets.Select(x => string.Join("|", x.Key, x.Value)).ToList()
+                Assets = package.Assets
+                    .Select(x => string.Join("|", x.Key, x.Value))
+                    .ToList()
+            };
+        }
+
+        private List<FileSearchTermData> ToModels(List<FileSearchTermDataDto> searchTermDataDtos)
+        {
+            List<FileSearchTermData> searchTermDataList = new List<FileSearchTermData>();
+
+            foreach (var searchTermDataDto in searchTermDataDtos)
+            {
+                searchTermDataList.Add(ToModel(searchTermDataDto));
+            }
+
+            return searchTermDataList;
+        }
+
+        private List<FileSearchTermDataDto> FromModels(List<FileSearchTermData> searchTermDataList)
+        {
+            List<FileSearchTermDataDto> searchTermDtos = new List<FileSearchTermDataDto>();
+
+            foreach (var searchTermData in searchTermDataList)
+            {
+                searchTermDtos.Add(FromModel(searchTermData));
+            }
+
+            return searchTermDtos;
+        }
+
+        private FileSearchTermData ToModel(FileSearchTermDataDto searchTermDto)
+        {
+            var searchTermDataList = new FileSearchTermData()
+            {
+                PackageName = searchTermDto.PackageName,
+                SearchTerms = searchTermDto.SearchTerms
+                    .Select(x => x.Split('|'))
+                    .ToDictionary(
+                        s => s[0],
+                        s => s[1].Split(',').Select(x => Convert.ToInt32(x))
+                    .ToList())
+            };
+
+            return searchTermDataList;
+        }
+
+        private FileSearchTermDataDto FromModel(FileSearchTermData searchTermData)
+        {
+            return new FileSearchTermDataDto()
+            {
+                PackageName = searchTermData.PackageName,
+                SearchTerms = searchTermData.SearchTerms
+                    .Select(x => string.Join("|", x.Key, string.Join(",", x.Value)))
+                    .ToList()
             };
         }
     }
@@ -966,13 +1158,24 @@ namespace PixelShenanigans.SyntyStoreSearch
     }
 
     [Serializable]
-    public class FileSearchTermData
+    public class FileSearchDataListDto
     {
-        public string PackageName;
-        public Dictionary<string, List<int>> SearchTerm_Assets;
+        public List<FileSearchTermDataDto> PackageSearchTerms;
     }
 
     [Serializable]
+    public class FileSearchTermDataDto
+    {
+        public string PackageName;
+        public List<string> SearchTerms;
+    }
+
+    public class FileSearchTermData
+    {
+        public string PackageName;
+        public Dictionary<string, List<int>> SearchTerms;
+    }
+
     public class FileSearchData
     {
         public string Name;

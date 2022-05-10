@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Text;
 using System.Text.RegularExpressions;
 
 namespace PixelShenanigans.FileUtilities
@@ -11,9 +12,9 @@ namespace PixelShenanigans.FileUtilities
 
             string removeNumbers = Regex.Replace(splitCamelCase, @"[\d-]", string.Empty);
 
-            string[] splitByUnderscore = removeNumbers.Split(new char['_'], StringSplitOptions.RemoveEmptyEntries);
+            string removeUnderscores = removeNumbers.Replace("__", "_");
 
-            return splitByUnderscore;
+            return removeUnderscores.Split(new char[] { '_' }, StringSplitOptions.RemoveEmptyEntries);
         }
     }
 }
