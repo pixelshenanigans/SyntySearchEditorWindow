@@ -26,8 +26,8 @@ Release Notes 1.3 (5/14/2022)
 - "Simple" unitypackage and zip files are now supported!
 - Text search now available for "Simple" packages
 - Prefab preview images available for "Simple" packages (unitypackage files only)
-- Can now click on a search result for an imported "Simple" package to locate the prefab the Unity project window (unitypackage files only)
-- Click an "owned" item to import the package (interactive) into your project
+- Can now click on a search result for an imported "Simple" package to locate the prefab the Unity project window
+- Click an "owned" item to import the package (interactive) into your project (unitypackage files only)
 - Setting a location will always scan the contents, useful for refreshing the location
 - Clicking on package icon will show list of owned packages
 - Now resides under Tools menu

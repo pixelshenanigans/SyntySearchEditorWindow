@@ -708,10 +708,6 @@ namespace PixelShenanigans.SyntyStoreSearch
                     File.WriteAllBytes(previewFilePath, fileData);
                 }
             }
-            else
-            {
-                Debug.Log("packageName is null!");
-            }
 
             return previewFilePath;
         }
